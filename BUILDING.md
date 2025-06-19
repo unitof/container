@@ -6,6 +6,8 @@ To build the `container` project, you need:
 - macOS 15 minimum, macOS 26 beta recommended
 - Xcode 26 beta
 
+Note that Xcode 26 must be the [active developer directory](https://keith.github.io/xcode-man-pages/xcode-select.1.html#s), either by running `xcode-select --switch /Applications/Xcode-beta.app` or by setting `DEVELOPER_DIR=/Applications/Xcode-beta.app` for the below commands.
+
 ## Compile and test
 
 Build `container` and the background services from source, and run basic and integration tests:
