@@ -21,6 +21,7 @@ import CVersion
 import ContainerClient
 import ContainerLog
 import ContainerPlugin
+import ContainerizationError
 import ContainerizationOS
 import Foundation
 import Logging
@@ -76,11 +77,8 @@ struct Application: AsyncParsableCommand {
                 ]
             ),
             CommandGroup(
-                name: "System",
-                subcommands: [
-                    BuilderCommand.self,
-                    SystemCommand.self,
-                ]
+                name: "Other",
+                subcommands: Self.otherCommands()
             ),
         ],
         // Hidden command to handle plugins on unrecognized input.
@@ -96,12 +94,32 @@ struct Application: AsyncParsableCommand {
     }()
 
     static let pluginLoader: PluginLoader = {
-        // create user-installed plugins directory if it doesn't exist
-        let pluginsURL = PluginLoader.userPluginsDir(root: Self.appRoot)
-        try! FileManager.default.createDirectory(at: pluginsURL, withIntermediateDirectories: true)
+        let installRoot = CommandLine.executablePathUrl
+            .deletingLastPathComponent()
+            .appendingPathComponent("..")
+            .standardized
+        let pluginsURL = PluginLoader.userPluginsDir(root: installRoot)
+        var directoryExists: ObjCBool = false
+        _ = FileManager.default.fileExists(atPath: pluginsURL.path, isDirectory: &directoryExists)
+        let userPluginsURL = directoryExists.boolValue ? pluginsURL : nil
+
+        // plugins built into the application installed as a macOS app bundle
+        let appBundlePluginsURL = Bundle.main.resourceURL?.appending(path: "plugins")
+
+        // plugins built into the application installed as a Unix-like application
+        let installRootPluginsURL =
+            installRoot
+            .appendingPathComponent("libexec")
+            .appendingPathComponent("container")
+            .appendingPathComponent("plugins")
+            .standardized
+
         let pluginDirectories = [
-            pluginsURL
-        ]
+            userPluginsURL,
+            appBundlePluginsURL,
+            installRootPluginsURL,
+        ].compactMap { $0 }
+
         let pluginFactories = [
             DefaultPluginFactory()
         ]
@@ -110,42 +128,6 @@ struct Application: AsyncParsableCommand {
         try! FileManager.default.createDirectory(at: statePath, withIntermediateDirectories: true)
         return PluginLoader(pluginDirectories: pluginDirectories, pluginFactories: pluginFactories, defaultResourcePath: statePath, log: log)
     }()
-
-    func validate() throws {
-        // Not really a "validation", but a cheat to run this before
-        // any of the commands do their business.
-        let debugEnvVar = ProcessInfo.processInfo.environment["CONTAINER_DEBUG"]
-        if self.global.debug || debugEnvVar != nil {
-            log.logLevel = .debug
-        }
-        // Ensure we're not running under Rosetta.
-        if try isTranslated() {
-            throw ValidationError(
-                """
-                `container` is currently running under Rosetta Translation, which could be
-                caused by your terminal application. Please ensure this is turned off.
-                """
-            )
-        }
-    }
-
-    private static func restoreCursorAtExit() {
-        let signalHandler: @convention(c) (Int32) -> Void = { signal in
-            let exitCode = ExitCode(signal + 128)
-            Application.exit(withError: exitCode)
-        }
-        // Termination by Ctrl+C.
-        signal(SIGINT, signalHandler)
-        // Termination using `kill`.
-        signal(SIGTERM, signalHandler)
-        // Normal and explicit exit.
-        atexit {
-            if let progressConfig = try? ProgressConfig() {
-                let progressBar = ProgressBar(config: progressConfig)
-                progressBar.resetCursor()
-            }
-        }
-    }
 
     public static func main() async throws {
         restoreCursorAtExit()
@@ -176,7 +158,13 @@ struct Application: AsyncParsableCommand {
                 Self.printModifiedHelpText()
                 return
             }
-            Application.exit(withError: error)
+            let errorAsString: String = String(describing: error)
+            if errorAsString.contains("XPC connection error") {
+                let modifiedError = ContainerizationError(.interrupted, message: "\(error)\nEnsure container system service has been started with `container system start`.")
+                Application.exit(withError: modifiedError)
+            } else {
+                Application.exit(withError: error)
+            }
         }
     }
 
@@ -194,7 +182,7 @@ struct Application: AsyncParsableCommand {
                 return -1
             }
 
-            try await process.start(io.stdio)
+            try await process.start()
             defer {
                 try? io.close()
             }
@@ -254,6 +242,57 @@ struct Application: AsyncParsableCommand {
             return -1
         }
     }
+
+    func validate() throws {
+        // Not really a "validation", but a cheat to run this before
+        // any of the commands do their business.
+        let debugEnvVar = ProcessInfo.processInfo.environment["CONTAINER_DEBUG"]
+        if self.global.debug || debugEnvVar != nil {
+            log.logLevel = .debug
+        }
+        // Ensure we're not running under Rosetta.
+        if try isTranslated() {
+            throw ValidationError(
+                """
+                `container` is currently running under Rosetta Translation, which could be
+                caused by your terminal application. Please ensure this is turned off.
+                """
+            )
+        }
+    }
+
+    private static func otherCommands() -> [any ParsableCommand.Type] {
+        guard #available(macOS 26, *) else {
+            return [
+                BuilderCommand.self,
+                SystemCommand.self,
+            ]
+        }
+
+        return [
+            BuilderCommand.self,
+            NetworkCommand.self,
+            SystemCommand.self,
+        ]
+    }
+
+    private static func restoreCursorAtExit() {
+        let signalHandler: @convention(c) (Int32) -> Void = { signal in
+            let exitCode = ExitCode(signal + 128)
+            Application.exit(withError: exitCode)
+        }
+        // Termination by Ctrl+C.
+        signal(SIGINT, signalHandler)
+        // Termination using `kill`.
+        signal(SIGTERM, signalHandler)
+        // Normal and explicit exit.
+        atexit {
+            if let progressConfig = try? ProgressConfig() {
+                let progressBar = ProgressBar(config: progressConfig)
+                progressBar.resetCursor()
+            }
+        }
+    }
 }
 
 extension Application {
@@ -294,9 +333,6 @@ extension Application {
         var versionDetails: [String: String] = ["build": "release"]
         #if DEBUG
         versionDetails["build"] = "debug"
-        #endif
-        #if CURRENT_SDK
-        versionDetails["sdk"] = "macOS 15"
         #endif
         let gitCommit = {
             let sha = get_git_commit().map { String(cString: $0) }

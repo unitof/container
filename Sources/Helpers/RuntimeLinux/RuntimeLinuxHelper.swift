@@ -25,6 +25,7 @@ import Containerization
 import ContainerizationError
 import Foundation
 import Logging
+import NIO
 
 @main
 struct RuntimeLinuxHelper: AsyncParsableCommand {
@@ -57,22 +58,19 @@ struct RuntimeLinuxHelper: AsyncParsableCommand {
             log.info("stopping \(commandName)")
         }
 
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         do {
             try adjustLimits()
             signal(SIGPIPE, SIG_IGN)
 
             log.info("configuring XPC server")
             let interfaceStrategy: any InterfaceStrategy
-            #if !CURRENT_SDK
             if #available(macOS 26, *) {
                 interfaceStrategy = NonisolatedInterfaceStrategy(log: log)
             } else {
                 interfaceStrategy = IsolatedInterfaceStrategy()
             }
-            #else
-            interfaceStrategy = IsolatedInterfaceStrategy()
-            #endif
-            let server = SandboxService(root: .init(fileURLWithPath: root), interfaceStrategy: interfaceStrategy, log: log)
+            let server = SandboxService(root: .init(fileURLWithPath: root), interfaceStrategy: interfaceStrategy, eventLoopGroup: eventLoopGroup, log: log)
             let xpc = XPCServer(
                 identifier: machServiceLabel,
                 routes: [
@@ -93,6 +91,7 @@ struct RuntimeLinuxHelper: AsyncParsableCommand {
             try await xpc.listen()
         } catch {
             log.error("\(commandName) failed", metadata: ["error": "\(error)"])
+            try? await eventLoopGroup.shutdownGracefully()
             RuntimeLinuxHelper.exit(withError: error)
         }
     }

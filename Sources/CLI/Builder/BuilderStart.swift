@@ -194,7 +194,8 @@ extension Application {
                     options: []
                 ),
             ]
-            config.rosetta = true
+            // Enable Rosetta only if the user didn't ask to disable it
+            config.rosetta = ClientDefaults.getBool(key: .buildRosetta) ?? true
 
             let network = try await ClientNetwork.get(id: ClientNetwork.defaultNetworkName)
             guard case .running(_, let networkStatus) = network else {
@@ -244,10 +245,12 @@ extension ClientContainer {
                 detach: true
             )
             defer { try? io.close() }
-            let process = try await bootstrap()
-            _ = try await process.start(io.stdio)
+
+            let process = try await bootstrap(stdio: io.stdio)
+            _ = try await process.start()
             await taskManager?.finish()
             try io.closeAfterStart()
+
             log.debug("starting BuildKit and BuildKit-shim")
         } catch {
             try? await stop()

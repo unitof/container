@@ -166,11 +166,17 @@ extension ImagesService {
             return try await body(authentication)
         }
         let keychain = KeychainHelper(id: Self.keychainID)
-        authentication = try? keychain.lookup(domain: host)
+        do {
+            authentication = try keychain.lookup(domain: host)
+        } catch let err as KeychainHelper.Error {
+            guard case .keyNotFound = err else {
+                throw ContainerizationError(.internalError, message: "Error querying keychain for \(host)", cause: err)
+            }
+        }
         do {
             return try await body(authentication)
         } catch let err as RegistryClient.Error {
-            guard case .invalidStatus(_, let status) = err else {
+            guard case .invalidStatus(_, let status, _) = err else {
                 throw err
             }
             guard status == .unauthorized || status == .forbidden else {

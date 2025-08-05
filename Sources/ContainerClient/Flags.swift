@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
+import ContainerizationError
 import Foundation
 
 public struct Flags {
@@ -83,7 +84,7 @@ public struct Flags {
     public struct Management: ParsableArguments {
         public init() {}
 
-        @Flag(name: [.customLong("detach"), .customShort("d")], help: "Run the container and detach from the process")
+        @Flag(name: [.customLong("detach"), .short], help: "Run the container and detach from the process")
         public var detach = false
 
         @Option(name: .customLong("entrypoint"), help: "Override the entrypoint of the image")
@@ -91,6 +92,12 @@ public struct Flags {
 
         @Option(name: .customLong("mount"), help: "Add a mount to the container (type=<>,source=<>,target=<>,readonly)")
         public var mounts: [String] = []
+
+        @Option(name: [.customLong("publish"), .short], help: "Publish a port from container to host (format: [host-ip:]host-port:container-port[/protocol])")
+        public var publishPorts: [String] = []
+
+        @Option(name: .customLong("publish-socket"), help: "Publish a socket from container to host (format: host_path:container_path)")
+        public var publishSockets: [String] = []
 
         @Option(name: .customLong("tmpfs"), help: "Add a tmpfs mount to the container at the given path")
         public var tmpFs: [String] = []
@@ -105,18 +112,21 @@ public struct Flags {
         public var os = "linux"
 
         @Option(
-            name: [.customLong("arch"), .customShort("a")], help: "Set arch if image can target multiple architectures")
+            name: [.customLong("arch"), .short], help: "Set arch if image can target multiple architectures")
         public var arch: String = Arch.hostArchitecture().rawValue
 
-        @Option(name: [.customLong("volume"), .customShort("v")], help: "Bind mount a volume into the container")
+        @Option(name: [.customLong("volume"), .short], help: "Bind mount a volume into the container")
         public var volumes: [String] = []
 
         @Option(
-            name: [.customLong("kernel"), .customShort("k")], help: "Set a custom kernel path", completion: .file(),
+            name: [.customLong("kernel"), .short], help: "Set a custom kernel path", completion: .file(),
             transform: { str in
                 URL(fileURLWithPath: str, relativeTo: .currentDirectory()).absoluteURL.path(percentEncoded: false)
             })
         public var kernel: String?
+
+        @Option(name: [.customLong("network")], help: "Attach the container to a network")
+        public var networks: [String] = []
 
         @Option(name: .customLong("cidfile"), help: "Write the container ID to the path provided")
         public var cidfile = ""
@@ -136,8 +146,15 @@ public struct Flags {
         @Option(name: .customLong("dns-option"), help: "DNS options")
         public var dnsOptions: [String] = []
 
-        @Option(name: [.customLong("label"), .customShort("l")], help: "Add a key=value label to the container")
+        @Option(name: [.customLong("label"), .short], help: "Add a key=value label to the container")
         public var labels: [String] = []
+
+        @Flag(
+            name: [.customLong("virtualization")],
+            help:
+                "Expose virtualization capabilities to the container. (Host must have nested virtualization support, and guest kernel must have virtualization capabilities enabled)"
+        )
+        public var virtualization: Bool = false
     }
 
     public struct Progress: ParsableArguments {

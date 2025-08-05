@@ -18,14 +18,14 @@ import Containerization
 import ContainerizationOCI
 
 public struct ImageDetail: Codable {
-    let name: String
-    let index: Descriptor
-    let variants: [Variants]
+    public let name: String
+    public let index: Descriptor
+    public let variants: [Variants]
 
-    struct Variants: Codable {
-        let platform: Platform
-        let config: ContainerizationOCI.Image
-        let size: Int64
+    public struct Variants: Codable {
+        public let platform: Platform
+        public let config: ContainerizationOCI.Image
+        public let size: Int64
 
         init(platform: Platform, size: Int64, config: ContainerizationOCI.Image) {
             self.platform = platform
@@ -43,7 +43,7 @@ public struct ImageDetail: Codable {
 
 extension ClientImage {
     public func details() async throws -> ImageDetail {
-        let indexDescriptor = self.descriptor
+        let descriptor = try await self.resolved()
         let reference = self.reference
         var variants: [ImageDetail.Variants] = []
         for desc in try await self.index().manifests {
@@ -61,6 +61,6 @@ extension ClientImage {
             let size = desc.size + manifest.config.size + manifest.layers.reduce(0, { (l, r) in l + r.size })
             variants.append(.init(platform: platform, size: size, config: config))
         }
-        return ImageDetail(name: reference, index: indexDescriptor, variants: variants)
+        return ImageDetail(name: reference, index: descriptor, variants: variants)
     }
 }

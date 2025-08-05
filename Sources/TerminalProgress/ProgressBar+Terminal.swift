@@ -66,9 +66,13 @@ extension ProgressBar {
         var text = text
 
         // Clears previously printed characters if the new string is shorter.
-        text += String(repeating: " ", count: max(printedWidth - text.count, 0))
-        printedWidth = text.count
-        state.output = text
+        printedWidth.withLock {
+            text += String(repeating: " ", count: max($0 - text.count, 0))
+            $0 = text.count
+        }
+        state.withLock {
+            $0.output = text
+        }
 
         // Clears previously printed lines.
         var lines = ""

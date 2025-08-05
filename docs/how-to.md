@@ -57,7 +57,7 @@ total 4
 
 ## Build and run a multiplatform image
 
-Using the [project from the tutorial example](/documentation/tutorial/#set-up-a-simple-project), you can create an image to use both on Apple silicon Macs and on x86-64 servers.
+Using the [project from the tutorial example](tutorial.md#set-up-a-simple-project), you can create an image to use both on Apple silicon Macs and on x86-64 servers.
 
 When building the image, just add `--arch` options that direct the builder to create an image supporting both the `arm64` and `amd64` architectures:
 
@@ -145,12 +145,111 @@ Use the `list` command with the `--format` option to display information for all
 ]
 </pre>
 
+## Forward traffic from `localhost` to your container
+
+Use the `--publish` option to forward TCP or UDP traffic from your loopback IP to the container you run. The option value has the form `[host-ip:]host-port:container-port[/protocol]`, where protocol may be `tcp` or `udp`, case insensitive.
+
+If your container attaches to multiple networks, the ports you publish forward to the IP address of the interface attached to the first network.
+
+To forward requests from `localhost:8080` to a Python webserver on container port 8000, run:
+
+```bash
+container run -d --rm -p 127.0.0.1:8080:8000 python:slim python3 -m http.server --bind 0.0.0.0 8000
+```
+
+A `curl` to `localhost:8000` outputs:
+
+```console
+% curl http://localhost:8080                                                                                    
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Directory listing for /</title>
+</head>
+<body>
+<h1>Directory listing for /</h1>
+<hr>
+<ul>
+<li><a href="bin/">bin@</a></li>
+<li><a href="boot/">boot/</a></li>
+<li><a href="dev/">dev/</a></li>
+<li><a href="etc/">etc/</a></li>
+<li><a href="home/">home/</a></li>
+<li><a href="lib/">lib@</a></li>
+<li><a href="lost%2Bfound/">lost+found/</a></li>
+<li><a href="media/">media/</a></li>
+<li><a href="mnt/">mnt/</a></li>
+<li><a href="opt/">opt/</a></li>
+<li><a href="proc/">proc/</a></li>
+<li><a href="root/">root/</a></li>
+<li><a href="run/">run/</a></li>
+<li><a href="sbin/">sbin@</a></li>
+<li><a href="srv/">srv/</a></li>
+<li><a href="sys/">sys/</a></li>
+<li><a href="tmp/">tmp/</a></li>
+<li><a href="usr/">usr/</a></li>
+<li><a href="var/">var/</a></li>
+</ul>
+<hr>
+</body>
+</html>
+```
+
+## Create and use a separate isolated network
+
+> [!NOTE]
+> This feature is available on macOS 26 and later.
+
+Running `container system start` creates a vmnet network named `default` to which your containers will attach unless you specify otherwise.
+
+You can create a separate isolated network using `container network create`.
+
+This command creates a network named `foo`:
+
+```bash
+container network create foo
+```
+
+The `foo` network, the default network, and any other networks you create are isolated from one another. A container on one network has no connectivity to containers on other networks.
+
+Run `container network list` to see the networks that exist:
+
+```console
+% container network list
+NETWORK  STATE    SUBNET
+default  running  192.168.64.0/24
+foo      running  192.168.65.0/24
+%
+```
+
+Run a container that is attached to that network using the `--network` flag:
+
+```console
+container run -d --name my-web-server --network foo --rm web-test
+```
+
+Use `container ls` to see that the container is on the `foo` subnet:
+
+```console
+ % container ls
+ID             IMAGE            OS     ARCH   STATE    ADDR
+my-web-server  web-test:latest  linux  arm64  running  192.168.65.2
+```
+
+You can delete networks that you create once no containers are attached:
+
+```bash
+container stop my-web-server
+container network delete foo
+```
+
 ## View container logs
 
 The `container logs` command displays the output from your containerized application:
 
 <pre>
-% container run -d --dns-domain test --name my-web-server --rm registry.example.com/fido/web-test:latest
+% container run -d --name my-web-server --rm registry.example.com/fido/web-test:latest
 my-web-server
 % curl http://my-web-server.test
 &lt;!DOCTYPE html>&lt;html>&lt;head>&lt;title>Hello&lt;/title>&lt;/head>&lt;body>&lt;h1>Hello, world!&lt;/h1>&lt;/body>&lt;/html>
@@ -187,6 +286,48 @@ Use the `--boot` option to see the logs for the virtual machine boot and init pr
 %
 </pre>
 
+## Expose virtualization capabilities to a container
+
+> [!NOTE]
+> This feature requires a M3 or newer Apple silicon machine and a Linux kernel that supports virtualization. For a kernel configuration that has all of the right features enabled, see https://github.com/apple/containerization/blob/0.5.0/kernel/config-arm64#L602.
+
+You can enable virtualization capabilities in containers by using the `--virtualization` option of `container run` and `container create`.
+
+If your machine does not have support for nested virtualization, you will see the following:
+
+```console
+container run --name nested-virtualization --virtualization --kernel /path/to/a/kernel/with/virtualization/support --rm ubuntu:latest sh -c "dmesg | grep kvm"
+Error: unsupported: "nested virtualization is not supported on the platform"
+```
+
+When nested virtualization is enabled successfully, `dmesg` will show output like the following:
+
+```console
+container run --name nested-virtualization --virtualization --kernel /path/to/a/kernel/with/virtualization/support --rm ubuntu:latest sh -c "dmesg | grep kvm"
+[    0.017245] kvm [1]: IPA Size Limit: 40 bits
+[    0.017499] kvm [1]: GICv3: no GICV resource entry
+[    0.017501] kvm [1]: disabling GICv2 emulation
+[    0.017506] kvm [1]: GIC system register CPU interface enabled
+[    0.017685] kvm [1]: vgic interrupt IRQ9
+[    0.017893] kvm [1]: Hyp mode initialized successfully
+```
+
+## Configure container defaults
+
+`container` uses macOS user defaults to store configuration settings that persist between sessions. You can customize various aspects of container behavior, including build settings, default images, and network configuration.
+
+For a complete list of available configuration options and detailed usage instructions, see the [user defaults documentation](user-defaults.md).
+
+### Example: Disable Rosetta for builds
+
+If you want to prevent the use of Rosetta translation during container builds on Apple Silicon Macs:
+
+```bash
+defaults write com.apple.container.defaults build.rosetta -bool false
+```
+
+This is useful when you want to ensure builds only produce native arm64 images and avoid any x86_64 emulation.
+
 ## View system logs
 
 The `container system logs` command allows you to look at the log messages that `container` writes:
@@ -203,3 +344,9 @@ The `container system logs` command allows you to look at the log messages that 
 2025-06-02 16:46:12.368723-0700 0xf6e93    Info        0x0                  61684  0    container-apiserver: [com.apple.container:APIServer] Handling container my-web-server Start.
 %
 </pre>
+
+## Setup shell completion
+
+The `container --generate-completion-script [zsh|bash|fish]` command generates completion scripts for the provided shell. 
+
+A detailed guide on how to install the completion scripts can be found [here](https://swiftpackageindex.com/apple/swift-argument-parser/1.5.1/documentation/argumentparser/installingcompletionscripts)

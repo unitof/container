@@ -16,7 +16,9 @@
 
 //
 
+import AsyncHTTPClient
 import ContainerClient
+import ContainerNetworkService
 import Containerization
 import ContainerizationOS
 import Foundation
@@ -250,6 +252,7 @@ class CLITest {
     struct inspectOutput: Codable {
         let status: String
         let configuration: ContainerConfiguration
+        let networks: [ContainerNetworkService.Attachment]
     }
 
     func getContainerStatus(_ name: String) throws -> String {
@@ -379,5 +382,21 @@ class CLITest {
         if status != 0 {
             throw CLIError.executionFailed("command failed: \(error)")
         }
+    }
+
+    func getClient() -> HTTPClient {
+        var httpConfiguration = HTTPClient.Configuration()
+        let proxyConfig: HTTPClient.Configuration.Proxy? = {
+            let proxyEnv = ProcessInfo.processInfo.environment["HTTP_PROXY"]
+            guard let proxyEnv else {
+                return nil
+            }
+            guard let url = URL(string: proxyEnv), let host = url.host(), let port = url.port else {
+                return nil
+            }
+            return .server(host: host, port: port)
+        }()
+        httpConfiguration.proxy = proxyConfig
+        return HTTPClient(eventLoopGroupProvider: .singleton, configuration: httpConfiguration)
     }
 }

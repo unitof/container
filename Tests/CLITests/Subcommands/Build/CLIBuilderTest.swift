@@ -47,6 +47,23 @@ extension TestCLIBuildBase {
             #expect(try self.inspectImage(imageName) == imageName, "expected to have successfully built \(imageName)")
         }
 
+        @Test func testBuildFromPreviousStage() throws {
+            let tempDir: URL = try createTempDir()
+            let dockerfile =
+                """
+                FROM ghcr.io/linuxcontainers/alpine:3.20 AS layer1
+                RUN sh -c "echo 'layer1' > /layer1.txt"
+
+                FROM layer1
+                CMD ["cat", "/layer1.txt"]
+                """
+
+            try createContext(tempDir: tempDir, dockerfile: dockerfile)
+            let imageName = "registry.local/from-previous-layer:\(UUID().uuidString)"
+            try self.build(tag: imageName, tempDir: tempDir)
+            #expect(try self.inspectImage(imageName) == imageName, "expected to have successfully build \(imageName)")
+        }
+
         @Test func testBuildFromLocalImage() throws {
             let tempDir: URL = try createTempDir()
             let dockerfile: String =
@@ -67,12 +84,12 @@ extension TestCLIBuildBase {
             let newTempDir: URL = try createTempDir()
             let newDockerfile: String =
                 """
-                 FROM local-only:\(imageName)
+                 FROM \(imageName)
                 """
             let newContext: [FileSystemEntry] = []
             try createContext(tempDir: newTempDir, dockerfile: newDockerfile, context: newContext)
             let newImageName = "from-local:\(UUID().uuidString)"
-            try self.build(tag: newImageName, tempDir: tempDir)
+            try self.build(tag: newImageName, tempDir: newTempDir)
             #expect(try self.inspectImage(newImageName) == newImageName, "expected to have successfully built \(newImageName)")
         }
 
@@ -110,6 +127,19 @@ extension TestCLIBuildBase {
             try createContext(tempDir: tempDir, dockerfile: dockerfile, context: context)
             let imageName: String = "registry.local/add-all:\(UUID().uuidString)"
             try self.build(tag: imageName, tempDir: tempDir)
+            #expect(try self.inspectImage(imageName) == imageName, "expected to have successfully built \(imageName)")
+        }
+
+        @Test func testBuildArg() throws {
+            let tempDir: URL = try createTempDir()
+            let dockerfile: String =
+                """
+                ARG TAG=unknown 
+                FROM ghcr.io/linuxcontainers/alpine:${TAG} 
+                """
+            try createContext(tempDir: tempDir, dockerfile: dockerfile)
+            let imageName: String = "registry.local/build-arg:\(UUID().uuidString)"
+            try self.build(tag: imageName, tempDir: tempDir, args: ["TAG=3.20"])
             #expect(try self.inspectImage(imageName) == imageName, "expected to have successfully built \(imageName)")
         }
 

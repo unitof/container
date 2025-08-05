@@ -396,4 +396,165 @@ public struct Parser {
             throw ContainerizationError(.invalidArgument, message: "mount destination cannot be empty")
         }
     }
+
+    /// Parse --publish-port arguments into PublishPort objects
+    /// The format of each argument is `[host-ip:]host-port:container-port[/protocol]`
+    /// (e.g., "127.0.0.1:8080:80/tcp")
+    ///
+    /// - Parameter rawPublishPorts: Array of port arguments
+    /// - Returns: Array of PublishPort objects
+    /// - Throws: ContainerizationError if parsing fails
+    static func publishPorts(_ rawPublishPorts: [String]) throws -> [PublishPort] {
+        var sockets: [PublishPort] = []
+
+        // Process each raw port string
+        for socket in rawPublishPorts {
+            let parsedSocket = try Parser.publishPort(socket)
+            sockets.append(parsedSocket)
+        }
+        return sockets
+    }
+
+    // Parse a single `--publish-port` argument into a `PublishPort`.
+    private static func publishPort(_ portText: String) throws -> PublishPort {
+        let protoSplit = portText.split(separator: "/")
+        let proto: PublishProtocol
+        let addressAndPortText: String
+        switch protoSplit.count {
+        case 1:
+            addressAndPortText = String(protoSplit[0])
+            proto = .tcp
+        case 2:
+            addressAndPortText = String(protoSplit[0])
+            let protoText = String(protoSplit[1])
+            guard let parsedProto = PublishProtocol(protoText) else {
+                throw ContainerizationError(.invalidArgument, message: "invalid publish protocol: \(protoText)")
+            }
+            proto = parsedProto
+        default:
+            throw ContainerizationError(.invalidArgument, message: "invalid publish value: \(portText)")
+        }
+
+        let hostAddress: String
+        let hostPortText: String
+        let containerPortText: String
+        let parts = addressAndPortText.split(separator: ":")
+        switch parts.count {
+        case 2:
+            hostAddress = "0.0.0.0"
+            hostPortText = String(parts[0])
+            containerPortText = String(parts[1])
+        case 3:
+            hostAddress = String(parts[0])
+            hostPortText = String(parts[1])
+            containerPortText = String(parts[2])
+        default:
+            throw ContainerizationError(.invalidArgument, message: "invalid publish address: \(portText)")
+        }
+
+        guard let hostPort = Int(hostPortText) else {
+            throw ContainerizationError(.invalidArgument, message: "invalid publish host port: \(hostPortText)")
+        }
+
+        guard let containerPort = Int(containerPortText) else {
+            throw ContainerizationError(.invalidArgument, message: "invalid publish container port: \(containerPortText)")
+        }
+
+        return PublishPort(
+            hostAddress: hostAddress,
+            hostPort: hostPort,
+            containerPort: containerPort,
+            proto: proto
+        )
+    }
+
+    /// Parse --publish-socket arguments into PublishSocket objects
+    /// The format of each argument is `host_path:container_path`
+    /// (e.g., "/tmp/docker.sock:/var/run/docker.sock")
+    ///
+    /// - Parameter rawPublishSockets: Array of socket arguments
+    /// - Returns: Array of PublishSocket objects
+    /// - Throws: ContainerizationError if parsing fails or a path is invalid
+    static func publishSockets(_ rawPublishSockets: [String]) throws -> [PublishSocket] {
+        var sockets: [PublishSocket] = []
+
+        // Process each raw socket string
+        for socket in rawPublishSockets {
+            let parsedSocket = try Parser.publishSocket(socket)
+            sockets.append(parsedSocket)
+        }
+        return sockets
+    }
+
+    // Parse a single `--publish-socket`` argument into a `PublishSocket`.
+    private static func publishSocket(_ socketText: String) throws -> PublishSocket {
+        // Split by colon to two parts: [host_path, container_path]
+        let parts = socketText.split(separator: ":")
+
+        switch parts.count {
+        case 2:
+            // Extract host and container paths
+            let hostPath = String(parts[0])
+            let containerPath = String(parts[1])
+
+            // Validate paths are not empty
+            if hostPath.isEmpty {
+                throw ContainerizationError(
+                    .invalidArgument, message: "host socket path cannot be empty")
+            }
+            if containerPath.isEmpty {
+                throw ContainerizationError(
+                    .invalidArgument, message: "container socket path cannot be empty")
+            }
+
+            // Ensure container path must start with /
+            if !containerPath.hasPrefix("/") {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "container socket path must be absolute: \(containerPath)")
+            }
+
+            // Convert host path to absolute path for consistency
+            let hostURL = URL(fileURLWithPath: hostPath)
+            let absoluteHostPath = hostURL.absoluteURL.path
+
+            // Check if host socket already exists and might be in use
+            if FileManager.default.fileExists(atPath: absoluteHostPath) {
+                do {
+                    let attrs = try FileManager.default.attributesOfItem(atPath: absoluteHostPath)
+                    if let fileType = attrs[.type] as? FileAttributeType, fileType == .typeSocket {
+                        throw ContainerizationError(
+                            .invalidArgument,
+                            message: "host socket \(absoluteHostPath) already exists and may be in use")
+                    }
+                    // If it exists but is not a socket, we can remove it and create socket
+                    try FileManager.default.removeItem(atPath: absoluteHostPath)
+                } catch let error as ContainerizationError {
+                    throw error
+                } catch {
+                    // For other file system errors, continue with creation
+                }
+            }
+
+            // Create host directory if it doesn't exist
+            let hostDir = hostURL.deletingLastPathComponent()
+            if !FileManager.default.fileExists(atPath: hostDir.path) {
+                try FileManager.default.createDirectory(
+                    at: hostDir, withIntermediateDirectories: true)
+            }
+
+            // Create and return PublishSocket object with validated paths
+            return PublishSocket(
+                containerPath: URL(fileURLWithPath: containerPath),
+                hostPath: URL(fileURLWithPath: absoluteHostPath),
+                permissions: nil
+            )
+
+        default:
+            throw ContainerizationError(
+                .invalidArgument,
+                message:
+                    "invalid publish-socket format \(socketText). Expected: host_path:container_path")
+        }
+    }
 }

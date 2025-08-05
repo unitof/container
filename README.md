@@ -1,4 +1,3 @@
-
 # `container`
 
 `container` is a tool that you can use to create and run Linux containers as lightweight virtual machines on your Mac. It's written in Swift, and optimized for Apple silicon.
@@ -31,6 +30,12 @@ Download the latest signed installer package for `container` from the [GitHub re
 
 To install the tool, double click the package file and follow the instructions. Enter your administrator password when prompted, to give the installer permission to place the installed files under `/usr/local`.
 
+Start the system service with:
+
+```
+container system start
+```
+
 ### Uninstall
 
 Use the `uninstall-container.sh` script to remove `container` from your system. To remove your user data along with the tool, run:
@@ -50,6 +55,7 @@ uninstall-container.sh -k
 - Take [a guided tour of `container`](./docs/tutorial.md) by building, running, and publishing a simple web server image.
 - Learn how to [use various `container` features](./docs/how-to.md).
 - Read a brief description and [technical overview](./docs/technical-overview.md) of `container`.
+- [Build and run](./BUILDING.md) `container` on your own development system.
 - View the project [API documentation](https://apple.github.io/container/documentation/).
 
 ## Contributing
@@ -58,4 +64,4 @@ Contributions to `container` are welcomed and encouraged. Please see our [main c
 
 ## Project Status
 
-The container project is currently under active development. Its stability, both for consuming the project as a Swift package and the `container` tool, is only guaranteed within minor versions, such as between 0.1.1 and 0.1.2. Minor version number releases may include breaking changes until we achieve a 1.0.0 release.
+The container project is currently under active development. Its stability, both for consuming the project as a Swift package and the `container` tool, is only guaranteed within patch versions, such as between 0.1.1 and 0.1.2. Minor version number releases may include breaking changes until we achieve a 1.0.0 release.
